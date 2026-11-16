@@ -1,0 +1,54 @@
+[project]
+name = "emma-tutor"
+version = "0.1.0"
+description = "Emma - a local voice English tutor with a 2D character"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.35",
+    "asyncpg>=0.29.0",
+    "aiosqlite>=0.20.0",
+    "alembic>=1.13.2",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27.0",
+    "numpy>=1.26.0",
+    "faster-whisper>=1.0.3",
+    "llama-index-core>=0.11.0",
+    "llama-index-vector-stores-postgres>=0.2.0",
+    "llama-index-embeddings-ollama>=0.3.0",
+    "pgvector>=0.2.5",
+]
+
+[project.optional-dependencies]
+tts = ["piper-tts>=1.2.0"]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/**" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
