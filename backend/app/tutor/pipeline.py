@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -29,6 +30,15 @@ SENTENCE_GAP_MS = 220
 class SseEvent:
     event: str
     data: dict
+
+
+def format_sse(event: SseEvent) -> str:
+    return f"event: {event.event}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+
+
+def speak_text_events(text: str, tts: SpeechSynth) -> list[SseEvent]:
+    """Synthesize one line of speech into the same event shapes the reply stream uses."""
+    return _Speaker(tts).say(text)
 
 
 @dataclass

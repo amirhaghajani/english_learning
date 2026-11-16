@@ -72,10 +72,24 @@ export async function blobToWav16k(blob: Blob): Promise<Blob> {
 interface PcmSentence {
   samples: Float32Array;
   sampleRate: number;
+  resolve?: () => void;
 }
 
 const SENTENCE_GAP_S = 0.12;
 const MAX_QUEUED_SENTENCES = 64;
+
+export function mergeChunks(chunks: Int16Array[]): Int16Array {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+
+  const merged = new Int16Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
 
 export class PcmPlayer {
   private ctx: AudioContext | null = null;
@@ -87,9 +101,11 @@ export class PcmPlayer {
 
   private queue: PcmSentence[] = [];
   private current: AudioBufferSourceNode | null = null;
+  private currentSentence: PcmSentence | null = null;
   private active = 0;
   private pumping = false;
   private stopped = false;
+  private generation = 0;
 
   get state(): string {
     return this.ctx ? this.ctx.state : 'uninitialised';
@@ -170,17 +186,24 @@ export class PcmPlayer {
     if (this.gain) this.gain.gain.value = this.volume;
   }
 
-  enqueueSentence(int16: Int16Array, sampleRate: number): void {
-    if (int16.length === 0 || sampleRate <= 0) return;
+  enqueueSentence(int16: Int16Array, sampleRate: number): Promise<void> {
+    if (int16.length === 0 || sampleRate <= 0) return Promise.resolve();
 
     const samples = new Float32Array(int16.length);
     for (let i = 0; i < int16.length; i += 1) samples[i] = int16[i] / 32768;
 
-    this.queue.push({ samples, sampleRate });
+    let settle: () => void = () => undefined;
+    const finished = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+
+    this.queue.push({ samples, sampleRate, resolve: settle });
     if (this.queue.length > MAX_QUEUED_SENTENCES) {
-      this.queue.splice(0, this.queue.length - MAX_QUEUED_SENTENCES);
+      const dropped = this.queue.splice(0, this.queue.length - MAX_QUEUED_SENTENCES);
+      for (const item of dropped) item.resolve?.();
     }
     this.pump();
+    return finished;
   }
 
   private pump(): void {
@@ -191,12 +214,13 @@ export class PcmPlayer {
       return;
     }
 
+    const generation = this.generation;
     this.pumping = true;
     this.stopped = false;
 
     void (async () => {
       try {
-        while (this.queue.length > 0 && !this.stopped) {
+        while (this.queue.length > 0 && !this.stopped && generation === this.generation) {
           const sentence = this.queue.shift();
           if (!sentence) break;
 
@@ -206,8 +230,10 @@ export class PcmPlayer {
           }
         }
       } finally {
-        this.pumping = false;
-        if (this.queue.length > 0 && !this.stopped) this.pump();
+        if (generation === this.generation) {
+          this.pumping = false;
+          if (this.queue.length > 0 && !this.stopped) this.pump();
+        }
       }
     })();
   }
@@ -226,13 +252,16 @@ export class PcmPlayer {
       source.connect(gain);
 
       this.current = source;
+      this.currentSentence = sentence;
       this.active += 1;
 
       source.onended = () => {
         this.active = Math.max(0, this.active - 1);
         this.current = null;
+        this.currentSentence = null;
         source.disconnect();
         resolve();
+        sentence.resolve?.();
       };
 
       source.start();
@@ -255,22 +284,29 @@ export class PcmPlayer {
   }
 
   stopAll(): void {
+    this.generation += 1;
+    const queued = this.queue;
     this.queue = [];
-    this.stopped = true;
-    this.pumping = false;
-    this.active = 0;
+    for (const item of queued) item.resolve?.();
 
-    const source = this.current;
+    const current = this.current;
+    const currentSentence = this.currentSentence;
     this.current = null;
-    if (source) {
+    this.currentSentence = null;
+    if (current) {
       try {
-        source.onended = null;
-        source.stop();
-        source.disconnect();
+        current.onended = null;
+        current.stop();
+        current.disconnect();
       } catch {
         /* already stopped */
       }
     }
+    currentSentence?.resolve?.();
+
+    this.stopped = true;
+    this.pumping = false;
+    this.active = 0;
   }
 }
 

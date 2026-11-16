@@ -13,7 +13,7 @@ import {
   decodePcm,
   streamReply,
 } from "./api";
-import { blobToWav16k, player } from "./audio";
+import { blobToWav16k, mergeChunks, player } from "./audio";
 
 export type Phase = "idle" | "recording" | "transcribing" | "thinking" | "speaking";
 
@@ -23,6 +23,7 @@ export interface ChatEntry {
   text: string;
   corrections: CorrectionItem[];
   pending: boolean;
+  turnId?: number;
 }
 
 function pickMimeType(): string {
@@ -75,6 +76,8 @@ export function useConversation() {
   const emmaKeyRef = useRef<string | null>(null);
   const audioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
   const lastAudioRef = useRef<number>(-1);
+  const turnAudioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
+  const currentTurnRef = useRef<number>(-1);
 
   const reportError = useCallback((message: string) => {
     setError(message);
@@ -220,26 +223,25 @@ export function useConversation() {
     const entry = audioRef.current.get(index);
     audioRef.current.delete(index);
     if (!entry || entry.chunks.length === 0) return;
-
-    let total = 0;
-    for (const chunk of entry.chunks) total += chunk.length;
-
-    const merged = new Int16Array(total);
-    let offset = 0;
-    for (const chunk of entry.chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    player.enqueueSentence(merged, entry.rate);
+    player.enqueueSentence(mergeChunks(entry.chunks), entry.rate);
   }, []);
 
   const handleAudio = useCallback(
     (index: number, pcmB64: string, rate: number) => {
+      const samples = decodePcm(pcmB64);
+
+      const turnId = currentTurnRef.current;
+      if (turnId !== -1) {
+        const turnEntry = turnAudioRef.current.get(turnId) ?? { chunks: [] as Int16Array[], rate };
+        turnEntry.rate = rate;
+        turnEntry.chunks.push(samples);
+        turnAudioRef.current.set(turnId, turnEntry);
+      }
+
       const existing = audioRef.current.get(index);
       const entry = existing ?? { chunks: [] as Int16Array[], rate };
       entry.rate = rate;
-      entry.chunks.push(decodePcm(pcmB64));
+      entry.chunks.push(samples);
       audioRef.current.set(index, entry);
 
       const previous = lastAudioRef.current;
@@ -249,10 +251,29 @@ export function useConversation() {
     [flushAudio],
   );
 
+  const replayTurn = useCallback(
+    async (turnId: number) => {
+      const entry = turnAudioRef.current.get(turnId);
+      if (!entry || entry.chunks.length === 0) return;
+      if (phaseRef.current !== "idle") return;
+
+      await ensureAudio();
+      player.stopAll();
+      setPhaseSafe("speaking");
+      try {
+        await player.enqueueSentence(mergeChunks(entry.chunks), entry.rate);
+      } finally {
+        setPhaseSafe("idle");
+      }
+    },
+    [ensureAudio, setPhaseSafe],
+  );
+
   const runTurn = useCallback(
     async (accepted: TurnAccepted) => {
       await ensureAudio();
       resetAudio();
+      currentTurnRef.current = accepted.turn_id;
 
       const emmaKey = `turn-${accepted.turn_id}`;
       emmaKeyRef.current = emmaKey;
@@ -265,7 +286,14 @@ export function useConversation() {
           corrections: [],
           pending: false,
         },
-        { key: emmaKey, role: "emma", text: "", corrections: [], pending: true },
+        {
+          key: emmaKey,
+          role: "emma",
+          text: "",
+          corrections: [],
+          pending: true,
+          turnId: accepted.turn_id,
+        },
       ]);
 
       setPhaseSafe("thinking");
@@ -509,6 +537,7 @@ export function useConversation() {
     startRecording,
     stopRecording,
     sendText,
+    replayTurn,
     stopEverything,
     cancelReply,
     soundReady,
