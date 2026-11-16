@@ -277,6 +277,35 @@ def test_text_turn_rejects_blank_and_unknown_session(client):
     assert unknown.status_code == 404
 
 
+def test_scenario_opening_streams_audio(client):
+    scenarios = client.get("/api/scenarios").json()
+    with_opening = [s for s in scenarios if s["opening_line"].strip()]
+    assert with_opening, "seed data should provide opening lines"
+
+    slug = with_opening[0]["slug"]
+    response = client.get(f"/api/scenarios/{slug}/opening")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+    events = parse_sse(response.text)
+    names = [name for name, _ in events]
+    assert names[0] == "sentence"
+    assert names[-1] == "done"
+    assert "audio" in names
+
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+    assert sentences == [with_opening[0]["opening_line"]]
+
+    audio = [data for name, data in events if name == "audio"]
+    assert audio
+    assert all(chunk["index"] == 0 for chunk in audio)
+
+
+def test_scenario_opening_unknown_slug(client):
+    response = client.get("/api/scenarios/does-not-exist/opening")
+    assert response.status_code == 404
+
+
 def test_transcription_shape():
     result = Transcription(text="hello", no_speech=False)
     assert result.language == "en"

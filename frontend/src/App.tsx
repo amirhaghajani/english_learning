@@ -101,7 +101,7 @@ export default function App() {
         </section>
 
         <section className="chat">
-          <Transcript entries={convo.entries} onReplay={(id) => void convo.replayTurn(id)} />
+          <Transcript entries={convo.entries} onReplay={(key) => void convo.replayAudio(key)} />
           <Composer disabled={!convo.session || convo.phase !== "idle"} onSend={convo.sendText} />
         </section>
 

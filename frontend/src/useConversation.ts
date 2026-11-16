@@ -12,6 +12,7 @@ import {
   api,
   decodePcm,
   streamReply,
+  streamSse,
 } from "./api";
 import { blobToWav16k, mergeChunks, player } from "./audio";
 
@@ -23,7 +24,7 @@ export interface ChatEntry {
   text: string;
   corrections: CorrectionItem[];
   pending: boolean;
-  turnId?: number;
+  audioKey?: string;
 }
 
 function pickMimeType(): string {
@@ -76,8 +77,8 @@ export function useConversation() {
   const emmaKeyRef = useRef<string | null>(null);
   const audioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
   const lastAudioRef = useRef<number>(-1);
-  const turnAudioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
-  const currentTurnRef = useRef<number>(-1);
+  const audioCacheRef = useRef<Map<string, { chunks: Int16Array[]; rate: number }>>(new Map());
+  const currentAudioKeyRef = useRef<string | null>(null);
 
   const reportError = useCallback((message: string) => {
     setError(message);
@@ -147,33 +148,6 @@ export function useConversation() {
     setLearner(next);
   }, []);
 
-  const startSession = useCallback(
-    async (mode: "free" | "scenario") => {
-      if (!learner) return null;
-      const created = await api.createSession({
-        learner_id: learner.id,
-        mode,
-        scenario_slug: mode === "scenario" ? scenarioSlug : null,
-      });
-      setSession(created);
-      setEntries([]);
-      setError(null);
-      setScenarioSlug(mode === "scenario" ? scenarioSlug : null);
-
-      if (mode === "scenario" && created.scenario_slug) {
-        const scenario = scenarios.find((row) => row.slug === created.scenario_slug);
-        if (scenario?.opening_line) {
-          const key = `opening-${created.id}`;
-          setEntries([
-            { key, role: "emma", text: scenario.opening_line, corrections: [], pending: false },
-          ]);
-        }
-      }
-      return created;
-    },
-    [learner, scenarioSlug, scenarios],
-  );
-
   const endSession = useCallback(async () => {
     if (session) {
       try {
@@ -230,12 +204,12 @@ export function useConversation() {
     (index: number, pcmB64: string, rate: number) => {
       const samples = decodePcm(pcmB64);
 
-      const turnId = currentTurnRef.current;
-      if (turnId !== -1) {
-        const turnEntry = turnAudioRef.current.get(turnId) ?? { chunks: [] as Int16Array[], rate };
-        turnEntry.rate = rate;
-        turnEntry.chunks.push(samples);
-        turnAudioRef.current.set(turnId, turnEntry);
+      const key = currentAudioKeyRef.current;
+      if (key) {
+        const cached = audioCacheRef.current.get(key) ?? { chunks: [] as Int16Array[], rate };
+        cached.rate = rate;
+        cached.chunks.push(samples);
+        audioCacheRef.current.set(key, cached);
       }
 
       const existing = audioRef.current.get(index);
@@ -251,9 +225,9 @@ export function useConversation() {
     [flushAudio],
   );
 
-  const replayTurn = useCallback(
-    async (turnId: number) => {
-      const entry = turnAudioRef.current.get(turnId);
+  const replayAudio = useCallback(
+    async (key: string) => {
+      const entry = audioCacheRef.current.get(key);
       if (!entry || entry.chunks.length === 0) return;
       if (phaseRef.current !== "idle") return;
 
@@ -269,13 +243,94 @@ export function useConversation() {
     [ensureAudio, setPhaseSafe],
   );
 
+  const waitForPlayback = useCallback(async (maxMs = 60000) => {
+    await new Promise((r) => setTimeout(r, 60));
+    const deadline = Date.now() + maxMs;
+    while (player.isPlaying() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }, []);
+
+  const speakOpening = useCallback(
+    async (slug: string, key: string) => {
+      resetAudio();
+      currentAudioKeyRef.current = key;
+      try {
+        await ensureAudio();
+        setPhaseSafe("speaking");
+        await streamSse(`/api/scenarios/${encodeURIComponent(slug)}/opening`, {
+          onAudio: ({ index, pcm_b64, sample_rate }) => {
+            handleAudio(index, pcm_b64, sample_rate);
+          },
+          onError: ({ code, message }) => {
+            player.stopAll();
+            reportError(message);
+            setErrorRetryable(code !== "not_found");
+            setPhaseSafe("idle");
+          },
+        });
+        await waitForPlayback();
+      } catch {
+        setPhaseSafe("idle");
+      } finally {
+        if (lastAudioRef.current !== -1) flushAudio(lastAudioRef.current);
+        lastAudioRef.current = -1;
+        setPhaseSafe("idle");
+      }
+    },
+    [
+      ensureAudio,
+      flushAudio,
+      handleAudio,
+      reportError,
+      resetAudio,
+      setPhaseSafe,
+      waitForPlayback,
+    ],
+  );
+
+  const startSession = useCallback(
+    async (mode: "free" | "scenario") => {
+      if (!learner) return null;
+      const created = await api.createSession({
+        learner_id: learner.id,
+        mode,
+        scenario_slug: mode === "scenario" ? scenarioSlug : null,
+      });
+      setSession(created);
+      setEntries([]);
+      setError(null);
+      setScenarioSlug(mode === "scenario" ? scenarioSlug : null);
+
+      if (mode === "scenario" && created.scenario_slug) {
+        const scenario = scenarios.find((row) => row.slug === created.scenario_slug);
+        if (scenario?.opening_line) {
+          const key = `opening-${created.id}`;
+          setEntries([
+            {
+              key,
+              role: "emma",
+              text: scenario.opening_line,
+              corrections: [],
+              pending: false,
+              audioKey: key,
+            },
+          ]);
+          void speakOpening(created.scenario_slug, key);
+        }
+      }
+      return created;
+    },
+    [learner, scenarioSlug, scenarios, speakOpening],
+  );
+
   const runTurn = useCallback(
     async (accepted: TurnAccepted) => {
       await ensureAudio();
       resetAudio();
-      currentTurnRef.current = accepted.turn_id;
 
       const emmaKey = `turn-${accepted.turn_id}`;
+      currentAudioKeyRef.current = emmaKey;
       emmaKeyRef.current = emmaKey;
       setEntries((prev) => [
         ...prev,
@@ -292,7 +347,7 @@ export function useConversation() {
           text: "",
           corrections: [],
           pending: true,
-          turnId: accepted.turn_id,
+          audioKey: emmaKey,
         },
       ]);
 
@@ -537,7 +592,7 @@ export function useConversation() {
     startRecording,
     stopRecording,
     sendText,
-    replayTurn,
+    replayAudio,
     stopEverything,
     cancelReply,
     soundReady,

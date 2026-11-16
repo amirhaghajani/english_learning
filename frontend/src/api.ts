@@ -229,12 +229,12 @@ export function decodePcm(base64: string): Int16Array {
   return samples;
 }
 
-export async function streamReply(
-  turnId: number,
+export async function streamSse(
+  url: string,
   handlers: ReplyStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`/api/turns/${turnId}/reply`, {
+  const response = await fetch(url, {
     signal,
     headers: { Accept: "text/event-stream" },
   });
@@ -292,4 +292,12 @@ function dispatch(event: SseEvent, handlers: ReplyStreamHandlers): void {
     default:
       break;
   }
+}
+
+export function streamReply(
+  turnId: number,
+  handlers: ReplyStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse("/api/turns/" + turnId + "/reply", handlers, signal);
 }

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -18,7 +17,7 @@ from app.db import SessionFactory
 from app.llm.base import TutorLLM
 from app.models import Learner, Session, Turn
 from app.schemas import TurnAccepted
-from app.tutor.pipeline import SseEvent, stream_reply
+from app.tutor.pipeline import SseEvent, format_sse, stream_reply
 
 router = APIRouter(prefix="/api/turns", tags=["turns"])
 logger = logging.getLogger(__name__)
@@ -131,10 +130,6 @@ async def create_turn(
     )
 
 
-def _sse(event: SseEvent) -> str:
-    return f"event: {event.event}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
-
-
 async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncIterator[str]:
     cancel = asyncio.Event()
     _running[turn_id] = cancel
@@ -144,7 +139,7 @@ async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncI
                 await db.execute(select(Turn).where(Turn.id == turn_id))
             ).scalar_one_or_none()
             if turn is None:
-                yield _sse(
+                yield format_sse(
                     SseEvent(
                         "error",
                         {
@@ -162,7 +157,7 @@ async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncI
                 await db.execute(select(Session).where(Session.id == turn.session_id))
             ).scalar_one_or_none()
             if session is None:
-                yield _sse(
+                yield format_sse(
                     SseEvent(
                         "error",
                         {
@@ -180,7 +175,7 @@ async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncI
                 await db.execute(select(Learner).where(Learner.id == session.learner_id))
             ).scalar_one_or_none()
             if learner is None:
-                yield _sse(
+                yield format_sse(
                     SseEvent(
                         "error",
                         {
@@ -198,10 +193,10 @@ async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncI
                 if cancel.is_set():
                     logger.info("reply for turn %s cancelled", turn_id)
                     break
-                yield _sse(event)
+                yield format_sse(event)
     except Exception as exc:  # noqa: BLE001
         logger.exception("reply stream failed for turn %s", turn_id)
-        yield _sse(SseEvent("error", {"code": "reply_failed", "message": str(exc)}))
+        yield format_sse(SseEvent("error", {"code": "reply_failed", "message": str(exc)}))
     finally:
         _running.pop(turn_id, None)
 

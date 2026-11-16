@@ -36,9 +36,11 @@ def format_sse(event: SseEvent) -> str:
     return f"event: {event.event}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
 
 
-def speak_text_events(text: str, tts: SpeechSynth) -> list[SseEvent]:
+def speak_text_events(text: str, tts: SpeechSynth) -> tuple[list[SseEvent], int]:
     """Synthesize one line of speech into the same event shapes the reply stream uses."""
-    return _Speaker(tts).say(text)
+    speaker = _Speaker(tts)
+    events = speaker.say(text)
+    return events, speaker.audio_ms
 
 
 @dataclass

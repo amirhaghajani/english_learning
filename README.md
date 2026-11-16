@@ -110,7 +110,8 @@ Vite proxies `/api` to `127.0.0.1:8000`, so no CORS dance is needed.
 ## First turn
 
 1. In the right panel, create a learner profile (name, level, first language, goals).
-2. Pick a scenario, or start a free chat.
+2. Pick a scenario, or start a free chat. Emma speaks the scenario's opening line out loud,
+   and you can click any of her messages to hear it again.
 3. Hold **space** (or the mic button), speak, release.
 4. Emma answers out loud. A correction card appears under her reply if anything needed fixing.
 
@@ -195,6 +196,7 @@ Two design notes worth knowing:
 | `GET` | `/api/healthz` | liveness plus DB / LLM / STT / TTS / RAG flags |
 | `GET/POST/PATCH` | `/api/learners` | named profiles |
 | `GET` | `/api/scenarios` | scenario list, filterable with `?level=B1` |
+| `GET` | `/api/scenarios/{slug}/opening` | SSE audio for the scenario's opening line |
 | `GET/POST` | `/api/sessions` | list by `?learner_id=`, or start one |
 | `GET` | `/api/sessions/{id}` | session with turns and corrections |
 | `POST` | `/api/sessions/{id}/end` | close a session |

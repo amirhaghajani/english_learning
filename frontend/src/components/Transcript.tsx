@@ -5,7 +5,7 @@ import { CorrectionCard } from "./CorrectionCard";
 
 interface TranscriptProps {
   entries: ChatEntry[];
-  onReplay?: (turnId: number) => void;
+  onReplay?: (audioKey: string) => void;
 }
 
 export function Transcript({ entries, onReplay }: TranscriptProps) {
@@ -29,7 +29,7 @@ export function Transcript({ entries, onReplay }: TranscriptProps) {
   return (
     <div className="transcript">
       {entries.map((entry) => {
-        const replayable = entry.role === "emma" && entry.turnId !== undefined;
+        const replayable = entry.role === "emma" && !!entry.audioKey;
         return (
           <div key={entry.key} className={`bubble bubble--${entry.role}`}>
             <div
@@ -38,14 +38,14 @@ export function Transcript({ entries, onReplay }: TranscriptProps) {
               tabIndex={replayable ? 0 : undefined}
               title={replayable ? "Click to hear this again" : undefined}
               onClick={
-                replayable && onReplay ? () => onReplay(entry.turnId as number) : undefined
+                replayable && onReplay ? () => onReplay(entry.audioKey as string) : undefined
               }
               onKeyDown={
                 replayable && onReplay
                   ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        onReplay(entry.turnId as number);
+                        onReplay(entry.audioKey as string);
                       }
                     }
                   : undefined
