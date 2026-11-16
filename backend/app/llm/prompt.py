@@ -4,13 +4,30 @@ from app.config import settings
 from app.llm.base import ChatMessage
 from app.models import Learner, Scenario, Turn
 
-_OUTPUT_CONTRACT = """OUTPUT CONTRACT - follow exactly.
+_OUTPUT_CONTRACT = """LATEST LEARNER MESSAGE - the only message you may correct, repeated verbatim:
+---
+{latest_message}
+---
+
+CORRECTION RULES
+- Judge only the message above. It is the last thing the learner said.
+- Correct grammar, wrong word choice, unnatural phrasing, misspellings, and informal
+  abbreviations that have a standard written form (knw -> know, wht -> what, problm -> problem).
+- Ignore capitalisation and punctuation. The learner is speaking, not writing, so never
+  report a missing comma or a lower-case "i" as a mistake.
+- Never correct anything from an earlier turn, even if you spot a mistake there. Earlier
+  turns already had their card.
+- List at most 3 items, most important first.
+- If the message above is genuinely correct and natural, output [].
+- Do not invent an error to fill the card. Equally, do not stay silent about a real one.
+
+OUTPUT CONTRACT - follow exactly.
 1. Reply with 2 to 4 short spoken sentences. Plain prose only. No markdown, no bullet
    points, no stage directions, no emojis, no headings.
 2. Never mention grammar rules, error names, or the words "mistake", "error",
    "correction" unless the learner asks about language directly.
-3. Answer what the learner meant, then weave the corrected phrasing into your own reply
-   as a natural recast. Do this silently: say it, do not explain it.
+3. Answer what you meant first; weave the corrected phrasing into your own reply as a
+   recast. Do this silently: say it, do not explain it.
 4. End with exactly one short follow-up question that keeps them talking.
 5. Then output a blank line, then the sentinel line below, then a JSON array.
 6. The JSON array has one object per correction and nothing else after it.
@@ -19,16 +36,15 @@ SENTINEL LINE (verbatim):
 [[CORRECTIONS]]
 
 JSON array shape:
-[{"said": "<exact wrong fragment>", "replacement": "<fixed fragment>",
+[{"said": "<exact wrong fragment copied from the LATEST LEARNER MESSAGE above>",
+  "replacement": "<fixed fragment>",
   "category": "grammar|word_choice|naturalness",
   "why": "<one short line, no jargon>",
   "severity": "minor|major"}]
 
 Hard rules for the array:
-- If the learner's message is already correct and natural, output exactly: []
-- Never invent an error to fill the card. [] is a perfectly good answer.
-- At most 3 items. Prefer the ones that matter most.
-- "said" must be copied from the learner's message, not paraphrased.
+- "said" must be copied verbatim from the LATEST LEARNER MESSAGE, not paraphrased and not
+  taken from an earlier turn.
 - "replacement" must differ from "said".
 - "why" is for the learner, so keep it under 15 words and jargon-free."""
 
@@ -68,6 +84,7 @@ class PromptContext:
     curriculum: list[RetrievedDoc] = field(default_factory=list)
     recurring: list[RecurringError] = field(default_factory=list)
     history: list[Turn] = field(default_factory=list)
+    latest_message: str = ""
     history_turns: int = settings.history_turns
     max_speak_chars: int = settings.max_speak_chars
     max_corrections: int = settings.max_corrections
@@ -148,7 +165,9 @@ def build_system_prompt(ctx: PromptContext) -> str:
         f"- Never more than {ctx.max_corrections} corrections in the JSON array.",
         "- No text formatting of any kind in the prose part.",
         "",
-        _OUTPUT_CONTRACT,
+        _OUTPUT_CONTRACT.replace(
+            "{latest_message}", ctx.latest_message.strip() or "(empty message)"
+        ),
     ]
     return "\n".join(p for p in parts if p is not None)
 

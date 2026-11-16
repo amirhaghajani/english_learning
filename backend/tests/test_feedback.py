@@ -97,16 +97,78 @@ def test_missing_fields_are_discarded():
 
 def test_five_items_cap_to_three_keeping_major():
     items = [
-        {"said": f"a{i}", "replacement": f"b{i}", "severity": "minor"} for i in range(4)
+        {
+            "said": f"I goed home at {i}",
+            "replacement": f"I went home at {i}",
+            "severity": "minor",
+        }
+        for i in range(4)
     ]
-    items.append({"said": "a9", "replacement": "b9", "severity": "major"})
+    items.append(
+        {
+            "said": "I goed home at nine",
+            "replacement": "I went home at nine",
+            "severity": "major",
+        }
+    )
     text = _reply(items)
-    transcript = " ".join(f"a{i}" for i in range(5))
+    transcript = " ".join(f"I goed home at {i}" for i in range(5)) + " I goed home at nine"
+
     parsed = parse_correction_items(items, limit=3)
     assert len(parsed) == 3
     assert any(item.severity == "major" for item in parsed)
+
     _, corrections = split_reply(text, ground_against=transcript)
     assert len(corrections) == 3
+    assert any(item.severity == "major" for item in corrections)
+
+
+def test_correction_about_an_earlier_turn_is_dropped():
+    transcript = "that is on mvp step now"
+    text = _reply(
+        [
+            {
+                "said": (
+                    "for now that seems good but maybe later on production run we have "
+                    "some challage"
+                ),
+                "replacement": (
+                    "for now that seems good, but maybe later on production run we will have "
+                    "some challenges"
+                ),
+                "category": "grammar",
+                "why": "Add 'will' for future tense",
+                "severity": "major",
+            },
+            {
+                "said": "on mvp step",
+                "replacement": "in the MVP step",
+                "category": "grammar",
+                "why": "Use 'in' with 'step'",
+                "severity": "minor",
+            },
+        ]
+    )
+
+    _, corrections = split_reply(text, ground_against=transcript)
+    assert [item.said for item in corrections] == ["on mvp step"]
+
+
+def test_correction_sharing_only_common_words_is_dropped():
+    transcript = "that makes sense to me"
+    text = _reply(
+        [
+            {
+                "said": "that seems good to you",
+                "replacement": "that seems good to me",
+                "category": "grammar",
+                "why": "Pronoun",
+            }
+        ]
+    )
+
+    _, corrections = split_reply(text, ground_against=transcript)
+    assert corrections == []
 
 
 def test_ungrounded_corrections_are_dropped():
@@ -169,6 +231,27 @@ def test_non_list_payload_is_ignored():
     text = "Fine.\n\n" + SENTINEL + '\n{"said": "a"}'
     _, corrections = split_reply(text)
     assert corrections == []
+
+
+def test_capitalisation_only_fixes_are_discarded():
+    items = [
+        {"said": "hello there", "replacement": "Hello there"},
+        {"said": "i has", "replacement": "I have"},
+    ]
+    parsed = parse_correction_items(items)
+    assert [item.said for item in parsed] == ["i has"]
+
+
+def test_punctuation_only_fix_is_discarded():
+    items = [{"said": "that makes sense", "replacement": "That makes sense!"}]
+    assert parse_correction_items(items) == []
+
+
+def test_spelling_fix_is_kept():
+    items = [{"said": "i knw", "replacement": "I know"}]
+    parsed = parse_correction_items(items)
+    assert len(parsed) == 1
+    assert parsed[0].replacement == "I know"
 
 
 def test_case_insensitive_sentinel():

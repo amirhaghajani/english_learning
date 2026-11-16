@@ -30,6 +30,11 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
+def _skeleton(text: str) -> str:
+    """Lowercase, punctuation-free form, used to spot orthography-only edits."""
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
 def extract_json_array(text: str) -> str | None:
     start = text.find("[")
     if start == -1:
@@ -70,18 +75,30 @@ def _coerce_severity(value: object) -> str:
     return CorrectionSeverity.minor.value
 
 
-def is_grounded(said: str, transcript: str) -> bool:
+def is_grounded(said: str, transcript: str, threshold: float = 0.75) -> bool:
+    """True when `said` plausibly comes from `transcript`.
+
+    The model sees the whole dialogue history, so it sometimes corrects an earlier turn. Such an
+    item shares a few common words with the current message but is not actually in it, so an
+    exact substring match is preferred and a token-coverage fallback is kept strict.
+    """
     said_norm = _normalise(said).lower()
     if not said_norm:
         return False
+
     transcript_norm = _normalise(transcript).lower()
+    if not transcript_norm:
+        return False
+
     if said_norm in transcript_norm:
         return True
+
     tokens = [t for t in _TOKEN_RE.findall(said_norm) if len(t) > 2]
     if not tokens:
-        return True
+        return False
+
     hits = sum(1 for t in tokens if t in transcript_norm)
-    return hits > 0
+    return hits / len(tokens) >= threshold
 
 
 def parse_correction_items(raw_items: object, *, limit: int = 3) -> list[ParsedCorrection]:
@@ -99,6 +116,8 @@ def parse_correction_items(raw_items: object, *, limit: int = 3) -> list[ParsedC
         if not said or not replacement:
             continue
         if said.lower() == replacement.lower():
+            continue
+        if _skeleton(said) == _skeleton(replacement):
             continue
         key = (said.lower(), replacement.lower())
         if key in seen:

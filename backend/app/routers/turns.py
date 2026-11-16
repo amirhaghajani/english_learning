@@ -144,21 +144,54 @@ async def _reply_stream(turn_id: int, llm: TutorLLM, tts: SpeechSynth) -> AsyncI
                 await db.execute(select(Turn).where(Turn.id == turn_id))
             ).scalar_one_or_none()
             if turn is None:
-                yield _sse(SseEvent("error", {"code": "not_found", "message": "unknown turn"}))
+                yield _sse(
+                    SseEvent(
+                        "error",
+                        {
+                            "code": "not_found",
+                            "message": (
+                                "This turn no longer exists. The tutor probably restarted or "
+                                "its database was reset. Start a new session."
+                            ),
+                        },
+                    )
+                )
                 return
 
             session = (
                 await db.execute(select(Session).where(Session.id == turn.session_id))
             ).scalar_one_or_none()
             if session is None:
-                yield _sse(SseEvent("error", {"code": "not_found", "message": "unknown session"}))
+                yield _sse(
+                    SseEvent(
+                        "error",
+                        {
+                            "code": "not_found",
+                            "message": (
+                                "The session for this turn is gone. The tutor probably restarted "
+                                "or its database was reset. Start a new session."
+                            ),
+                        },
+                    )
+                )
                 return
 
             learner = (
                 await db.execute(select(Learner).where(Learner.id == session.learner_id))
             ).scalar_one_or_none()
             if learner is None:
-                yield _sse(SseEvent("error", {"code": "not_found", "message": "unknown learner"}))
+                yield _sse(
+                    SseEvent(
+                        "error",
+                        {
+                            "code": "not_found",
+                            "message": (
+                                "The learner profile for this turn is missing. Reload the page "
+                                "and pick a profile again."
+                            ),
+                        },
+                    )
+                )
                 return
 
             async for event in stream_reply(db, session, learner, turn, llm, tts):

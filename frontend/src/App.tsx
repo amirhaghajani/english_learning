@@ -72,9 +72,11 @@ export default function App() {
         <div className="banner" role="alert">
           <span>{convo.error}</span>
           <div className="banner__actions">
-            <button type="button" className="btn btn--ghost" onClick={() => void convo.refreshHealth()}>
-              Retry
-            </button>
+            {convo.errorRetryable ? (
+              <button type="button" className="btn btn--ghost" onClick={() => void convo.refreshHealth()}>
+                Retry
+              </button>
+            ) : null}
             <button type="button" className="btn btn--ghost" onClick={() => convo.setError(null)}>
               Dismiss
             </button>

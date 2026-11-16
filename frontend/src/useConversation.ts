@@ -64,6 +64,7 @@ export function useConversation() {
   const [error, setError] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const [soundReady, setSoundReady] = useState(false);
+  const [errorRetryable, setErrorRetryable] = useState(true);
 
   const phaseRef = useRef<Phase>("idle");
   const sessionRef = useRef<Session | null>(null);
@@ -74,6 +75,11 @@ export function useConversation() {
   const emmaKeyRef = useRef<string | null>(null);
   const audioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
   const lastAudioRef = useRef<number>(-1);
+
+  const reportError = useCallback((message: string) => {
+    setError(message);
+    setErrorRetryable(true);
+  }, []);
 
   const setPhaseSafe = useCallback((next: Phase) => {
     phaseRef.current = next;
@@ -89,7 +95,7 @@ export function useConversation() {
       setHealth(await api.health());
     } catch (err) {
       setHealth(null);
-      setError(err instanceof Error ? err.message : "backend unreachable");
+      reportError(err instanceof Error ? err.message : "backend unreachable");
     }
   }, []);
 
@@ -106,7 +112,7 @@ export function useConversation() {
         setScenarios(scenarioRows);
         if (learnerRows.length > 0) setLearner(learnerRows[0]);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Could not reach the tutor backend.");
+        reportError(err instanceof ApiError ? err.message : "Could not reach the tutor backend.");
       } finally {
         setBooted(true);
       }
@@ -290,10 +296,15 @@ export function useConversation() {
               lastAudioRef.current = -1;
               setPhaseSafe("idle");
             },
-            onError: ({ message }) => {
+            onError: ({ code, message }) => {
               if (lastAudioRef.current !== -1) flushAudio(lastAudioRef.current);
               lastAudioRef.current = -1;
               setError(message);
+              setErrorRetryable(code !== "not_found");
+              if (code === "not_found") {
+                setSession(null);
+                setEntries([]);
+              }
               setPhaseSafe("idle");
             },
           },
@@ -301,7 +312,7 @@ export function useConversation() {
         );
       } catch (err) {
         if ((err as { name?: string })?.name !== "AbortError") {
-          setError(err instanceof Error ? err.message : "The tutor failed to answer.");
+          reportError(err instanceof Error ? err.message : "The tutor failed to answer.");
         }
       } finally {
         if (lastAudioRef.current !== -1) flushAudio(lastAudioRef.current);
@@ -323,7 +334,7 @@ export function useConversation() {
     const blob = new Blob(chunksRef.current, { type });
     chunksRef.current = [];
     if (blob.size === 0) {
-      setError("That recording was empty. Hold the mic a little longer and try again.");
+      reportError("That recording was empty. Hold the mic a little longer and try again.");
       setPhaseSafe("idle");
       return;
     }
@@ -334,7 +345,7 @@ export function useConversation() {
       const accepted = await api.sendTurn(active.id, wav);
       await runTurn(accepted);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The tutor failed to answer.");
+      reportError(err instanceof Error ? err.message : "The tutor failed to answer.");
       setPhaseSafe("idle");
     }
   }, [runTurn, setPhaseSafe]);
@@ -353,7 +364,7 @@ export function useConversation() {
         await runTurn(accepted);
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "The tutor failed to answer.");
+        reportError(err instanceof Error ? err.message : "The tutor failed to answer.");
         setPhaseSafe("idle");
         return false;
       }
@@ -370,7 +381,7 @@ export function useConversation() {
       player.stopAll();
 
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("This browser cannot record audio. Try a recent Chrome, Edge, Firefox or Safari.");
+        reportError("This browser cannot record audio. Try a recent Chrome, Edge, Firefox or Safari.");
         return;
       }
 
@@ -399,7 +410,7 @@ export function useConversation() {
     } catch (err) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setError(micErrorMessage(err));
+      reportError(micErrorMessage(err));
       setPhaseSafe("idle");
     }
   }, [ensureAudio, finishRecording, setPhaseSafe]);
@@ -502,6 +513,7 @@ export function useConversation() {
     cancelReply,
     soundReady,
     enableSound: ensureAudio,
+    errorRetryable,
     mouthAmplitude: () => player.amplitude(),
     isPlaying: () => player.isPlaying(),
   };

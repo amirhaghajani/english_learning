@@ -208,6 +208,7 @@ async def stream_reply(
         curriculum=curriculum,
         recurring=recurring,
         history=history,
+        latest_message=turn.transcript,
     )
     request = ReplyRequest(
         system=build_system_prompt(ctx),
