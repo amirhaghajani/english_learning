@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import ROOT, settings
-from app.db import SessionFactory, create_all, dispose_engine
+from app.db import SessionFactory, create_all, dispose_engine, ensure_sqlite_columns
 from app.routers import admin, health, learners, scenarios, sessions, turns
 from app.seed import seed_scenarios
 
@@ -25,6 +25,7 @@ async def lifespan(_app: FastAPI):
     if settings.is_sqlite:
         logger.info("using SQLite fallback at %s", settings.database_url)
         await create_all()
+        await ensure_sqlite_columns()
     else:
         logger.info("using Postgres at %s", settings.database_url)
 

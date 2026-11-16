@@ -294,11 +294,12 @@ def test_scenario_opening_streams_audio(client):
     assert "audio" in names
 
     sentences = [data["text"] for name, data in events if name == "sentence"]
-    assert sentences == [with_opening[0]["opening_line"]]
+    assert " ".join(sentences) == with_opening[0]["opening_line"]
 
     audio = [data for name, data in events if name == "audio"]
     assert audio
-    assert all(chunk["index"] == 0 for chunk in audio)
+    indices = {chunk["index"] for chunk in audio}
+    assert indices == set(range(len(sentences)))
 
 
 def test_scenario_opening_unknown_slug(client):

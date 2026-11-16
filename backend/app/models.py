@@ -88,6 +88,7 @@ class Session(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    opening_line: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     learner: Mapped[Learner] = relationship(back_populates="sessions")
     turns: Mapped[list["Turn"]] = relationship(

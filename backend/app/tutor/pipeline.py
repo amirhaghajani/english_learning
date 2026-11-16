@@ -37,9 +37,11 @@ def format_sse(event: SseEvent) -> str:
 
 
 def speak_text_events(text: str, tts: SpeechSynth) -> tuple[list[SseEvent], int]:
-    """Synthesize one line of speech into the same event shapes the reply stream uses."""
+    """Synthesize a line the same way the reply stream does: one sentence at a time."""
     speaker = _Speaker(tts)
-    events = speaker.say(text)
+    events: list[SseEvent] = []
+    for sentence in split_sentences(text):
+        events.extend(speaker.say(sentence))
     return events, speaker.audio_ms
 
 

@@ -252,27 +252,47 @@ export function useConversation() {
   }, []);
 
   const speakOpening = useCallback(
-    async (slug: string, key: string) => {
+    async (slug: string, key: string, sessionId: number, fallback: string) => {
       resetAudio();
       currentAudioKeyRef.current = key;
+      let spoken = "";
+
+      const applyText = (text: string) => {
+        if (!text || text === spoken) return;
+        spoken = text;
+        setEntries((prev) => {
+          const next = [...prev];
+          const index = next.findIndex((entry) => entry.key === key);
+          if (index !== -1) next[index] = { ...next[index], text, pending: false };
+          return next;
+        });
+      };
+
       try {
         await ensureAudio();
         setPhaseSafe("speaking");
-        await streamSse(`/api/scenarios/${encodeURIComponent(slug)}/opening`, {
-          onAudio: ({ index, pcm_b64, sample_rate }) => {
-            handleAudio(index, pcm_b64, sample_rate);
+        await streamSse(
+          `/api/scenarios/${encodeURIComponent(slug)}/opening?session_id=${sessionId}`,
+          {
+            onSentence: ({ text }) => {
+              applyText(spoken ? `${spoken} ${text}` : text);
+            },
+            onAudio: ({ index, pcm_b64, sample_rate }) => {
+              handleAudio(index, pcm_b64, sample_rate);
+            },
+            onError: ({ code, message }) => {
+              player.stopAll();
+              reportError(message);
+              setErrorRetryable(code !== "not_found");
+              setPhaseSafe("idle");
+            },
           },
-          onError: ({ code, message }) => {
-            player.stopAll();
-            reportError(message);
-            setErrorRetryable(code !== "not_found");
-            setPhaseSafe("idle");
-          },
-        });
+        );
         await waitForPlayback();
       } catch {
         setPhaseSafe("idle");
       } finally {
+        if (!spoken && fallback) applyText(fallback);
         if (lastAudioRef.current !== -1) flushAudio(lastAudioRef.current);
         lastAudioRef.current = -1;
         setPhaseSafe("idle");
@@ -316,7 +336,7 @@ export function useConversation() {
               audioKey: key,
             },
           ]);
-          void speakOpening(created.scenario_slug, key);
+          void speakOpening(created.scenario_slug, key, created.id, scenario.opening_line);
         }
       }
       return created;

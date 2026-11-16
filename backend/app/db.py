@@ -1,11 +1,18 @@
+import logging
 from collections.abc import AsyncIterator
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.config import settings
 from app.models import Base
+
+logger = logging.getLogger(__name__)
+
+_SQLITE_EXTRA_COLUMNS = {
+    "session": (("opening_line", "ALTER TABLE session ADD COLUMN opening_line TEXT"),),
+}
 
 
 def _engine_kwargs() -> dict:
@@ -36,6 +43,20 @@ SessionFactory = async_sessionmaker(engine, expire_on_commit=False, class_=Async
 async def create_all() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def ensure_sqlite_columns() -> None:
+    """Add columns introduced after an existing SQLite file was created."""
+    if not settings.is_sqlite:
+        return
+    async with engine.begin() as conn:
+        for table, columns in _SQLITE_EXTRA_COLUMNS.items():
+            rows = (await conn.execute(text(f"PRAGMA table_info({table})"))).all()
+            present = {row[1] for row in rows}
+            for name, ddl in columns:
+                if name not in present:
+                    logger.info("sqlite: adding missing column %s.%s", table, name)
+                    await conn.execute(text(ddl))
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

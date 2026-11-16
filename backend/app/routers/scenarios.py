@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import deps
 from app.audio.tts import SpeechSynth
-from app.models import Scenario
+from app.models import Scenario, Session
 from app.schemas import ScenarioOut
 from app.tutor.pipeline import SseEvent, format_sse, speak_text_events
 
@@ -45,6 +45,7 @@ async def _opening_stream(text: str, tts: SpeechSynth) -> AsyncIterator[str]:
 @router.get("/{slug}/opening")
 async def scenario_opening(
     slug: str,
+    session_id: int | None = Query(default=None),
     db: AsyncSession = Depends(deps.get_db),
     tts: SpeechSynth = Depends(deps.get_tts_dep),
 ) -> StreamingResponse:
@@ -59,6 +60,14 @@ async def scenario_opening(
         raise HTTPException(
             status_code=404, detail=f"scenario '{slug}' has no opening line"
         )
+
+    if session_id is not None:
+        session = (
+            await db.execute(select(Session).where(Session.id == session_id))
+        ).scalar_one_or_none()
+        if session is not None:
+            session.opening_line = line
+            await db.commit()
 
     return StreamingResponse(
         _opening_stream(line, tts),

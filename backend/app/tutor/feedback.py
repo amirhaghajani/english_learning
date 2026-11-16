@@ -35,6 +35,15 @@ def _skeleton(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
+def is_echo(sentence: str, transcript: str) -> bool:
+    """True when the sentence only repeats the learner's own words back at them."""
+    spoken = _skeleton(sentence)
+    said = _skeleton(transcript)
+    if not spoken or not said:
+        return False
+    return spoken == said
+
+
 def extract_json_array(text: str) -> str | None:
     start = text.find("[")
     if start == -1:
