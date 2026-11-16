@@ -307,6 +307,12 @@ Other voices: `en_US-lessac-high`, `en_US-amy-medium`, `en_GB-alba-medium`.
 **`Ollama is unreachable`.** Start it with `ollama serve` (Windows: the Ollama tray app) and
 check `ollama list` contains the configured model.
 
+**Sentences run into each other.** Pacing comes from two places: the server appends 220 ms of
+silence after every sentence's audio, and the player assembles each sentence into a single
+buffer and plays them strictly one at a time with a further 120 ms gap. If it still sounds
+glued together, the backend process is probably stale — restart `uvicorn` (it is not started
+with `--reload` in the quick start).
+
 **No sound at all.** Browsers start an `AudioContext` in `suspended` state until the page sees a
 user gesture. If the header shows **Enable sound**, click it once. The player also queues audio
 while suspended and flushes it on resume, so a blocked context delays speech instead of dropping

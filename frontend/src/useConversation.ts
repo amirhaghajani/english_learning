@@ -304,6 +304,8 @@ export function useConversation() {
           setError(err instanceof Error ? err.message : "The tutor failed to answer.");
         }
       } finally {
+        if (lastAudioRef.current !== -1) flushAudio(lastAudioRef.current);
+        lastAudioRef.current = -1;
         setPhaseSafe("idle");
       }
     },
