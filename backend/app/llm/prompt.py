@@ -47,6 +47,8 @@ JSON array shape:
   "severity": "minor|major"}]
 
 Hard rules for the array:
+- If the JSON array has items, your prose above MUST say the corrected phrasing out loud at
+  least once, naturally, as part of your reply. The learner should hear the fix, not read it.
 - "said" must be copied verbatim from the LATEST LEARNER MESSAGE, not paraphrased and not
   taken from an earlier turn.
 - "replacement" must differ from "said".

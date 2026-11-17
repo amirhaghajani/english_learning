@@ -192,6 +192,59 @@ def split_reply(
     return prose, corrections
 
 
+def _words(text: str) -> set[str]:
+    return set(_TOKEN_RE.findall(_skeleton(text)))
+
+
+def has_recast(prose: str, corrections: list[ParsedCorrection]) -> bool:
+    """True when the reply already says the corrected wording out loud.
+
+    Only the words the fix actually introduces are checked, so "you went to the store"
+    counts as recasting "I go to the store" even though the sentences differ.
+    """
+    said_words = _words(prose)
+    if not said_words:
+        return False
+
+    for item in corrections:
+        introduced = _words(item.replacement) - _words(item.said)
+        if not introduced:
+            replacement = _skeleton(item.replacement)
+            if len(replacement) >= 3 and replacement in _skeleton(prose):
+                return True
+            continue
+        if introduced & said_words:
+            return True
+    return False
+
+
+def apply_corrections(
+    transcript: str, corrections: list[ParsedCorrection], limit: int = 2
+) -> str:
+    """Rebuild the learner's sentence with the fixes applied, for a spoken recast."""
+    source = (transcript or "").strip()
+    if not source or not corrections:
+        return ""
+
+    text = source
+    for item in corrections[:limit]:
+        said = (item.said or "").strip()
+        replacement = (item.replacement or "").strip()
+        if not said or not replacement:
+            continue
+        pattern = re.compile(re.escape(said), re.IGNORECASE)
+        if not pattern.search(text):
+            continue
+        text = pattern.sub(lambda _match, value=replacement: value, text, count=1)
+
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or text.lower() == source.lower():
+        return ""
+    if text[-1] not in ".!?":
+        text += "."
+    return text
+
+
 def is_repeat_of_any(sentence: str, replies: list[str]) -> bool:
     """True when the sentence opens with the same words as a recent reply of ours."""
     target = _skeleton(sentence)

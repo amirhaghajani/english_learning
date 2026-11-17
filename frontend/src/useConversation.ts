@@ -77,6 +77,7 @@ export function useConversation() {
   const emmaKeyRef = useRef<string | null>(null);
   const audioRef = useRef<Map<number, { chunks: Int16Array[]; rate: number }>>(new Map());
   const lastAudioRef = useRef<number>(-1);
+  const stopRequestedRef = useRef(false);
   const audioCacheRef = useRef<Map<string, { chunks: Int16Array[]; rate: number }>>(new Map());
   const currentAudioKeyRef = useRef<string | null>(null);
 
@@ -478,6 +479,7 @@ export function useConversation() {
   const startRecording = useCallback(async () => {
     if (!sessionRef.current || phaseRef.current !== "idle") return;
     setError(null);
+    stopRequestedRef.current = false;
 
     try {
       await ensureAudio();
@@ -510,6 +512,12 @@ export function useConversation() {
       recorder.start();
       recorderRef.current = recorder;
       setPhaseSafe("recording");
+
+      if (stopRequestedRef.current) {
+        stopRequestedRef.current = false;
+        recorder.stop();
+        recorderRef.current = null;
+      }
     } catch (err) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -519,6 +527,9 @@ export function useConversation() {
   }, [ensureAudio, finishRecording, setPhaseSafe]);
 
   const stopRecording = useCallback(() => {
+    stopRequestedRef.current = true;
+    if (phaseRef.current !== "recording") return;
+
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
@@ -526,6 +537,18 @@ export function useConversation() {
     }
     setPhaseSafe("transcribing");
   }, [setPhaseSafe]);
+
+  useEffect(() => {
+    const release = () => {
+      if (phaseRef.current === "recording") stopRecording();
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+    };
+  }, [stopRecording]);
 
   const stopEverything = useCallback(() => {
     abortRef.current?.abort();

@@ -19,7 +19,9 @@ from app.rag.index import CurriculumRetriever
 from app.tutor.feedback import (
     SENTINEL_RE,
     ParsedCorrection,
+    apply_corrections,
     drop_echoes,
+    has_recast,
     is_echo,
     is_repeat_of_any,
     split_reply,
@@ -32,6 +34,7 @@ _SENTINEL = object()
 
 SENTENCE_GAP_MS = 220
 MAX_REPLY_ATTEMPTS = 2
+CORRECTION_PREFIX = "It's better to say: "
 
 
 @dataclass
@@ -85,7 +88,12 @@ async def _aiter_sync(iterator: Iterator[str]) -> AsyncIterator[str]:
 
 def _is_closed(text: str) -> bool:
     stripped = text.rstrip()
-    return bool(stripped) and stripped[-1] in ".!?\"')]"
+    if not stripped:
+        return False
+    if stripped[-1] in ".!?":
+        return True
+    # A terminator followed by closing quotes/brackets, e.g. 'wait."'
+    return len(stripped) > 1 and stripped[-1] in "\"')]}" and stripped[-2] in ".!?"
 
 
 def _pcm_ms(num_bytes: int, sample_rate: int) -> int:
@@ -318,6 +326,15 @@ async def stream_reply(
         buffer, limit=settings.max_corrections, ground_against=turn.transcript
     )
     prose = drop_echoes(prose, turn.transcript)
+
+    recast = apply_corrections(turn.transcript, corrections)
+    if recast and not has_recast(prose, corrections):
+        line = f"{CORRECTION_PREFIX}{recast}"
+        logger.info("turn %s speaking recast: %s", turn.id, line)
+        for event in speaker.say(line):
+            yield event
+        prose = f"{prose} {line}".strip() if prose else line
+
     await _persist(db, turn, prose, corrections, speaker.audio_ms)
 
     yield SseEvent(

@@ -14,7 +14,13 @@ keys required unless you opt into OpenRouter.
 
 - Push-to-talk conversation, turn based (no VAD, no barge-in)
 - Streaming replies: tokens are spoken sentence by sentence as they close
-- Inline **recast** plus a per-turn **correction card** (said → fixed, category, why, severity)
+- Inline **recast** plus a per-turn **correction card** (said → fixed, category, why, severity).
+  The fix is always **spoken**, not only shown: the prompt requires the corrected wording in the
+  prose whenever the JSON array is non-empty, and the backend verifies the spoken text — if the
+  model left it out, Emma's own sentence is rebuilt with the fixes applied and spoken as a final
+  line prefixed with **"It's better to say:"**, so it reads as a correction rather than Emma
+  repeating you. When the model weaves the fix in naturally, no prefix is added and nothing is
+  duplicated.
 - Error categories: **grammar**, **word choice**, **naturalness** (pronunciation is deferred)
 - Named learner profiles with CEFR level, first language and goals — Emma adapts to them
 - Retrieval over a starter curriculum **and** the learner's own recurring mistakes
@@ -22,7 +28,7 @@ keys required unless you opt into OpenRouter.
 - Fully swappable LLM layer: local Ollama (default) or OpenRouter
 
 Deferred on purpose: pronunciation scoring, spaced repetition, vocabulary trainer, progress
-dashboard, barge-in / echo cancellation, mobile layout, password auth, extra characters.
+dashboard, barge-in / echo cancellation, password auth, extra characters.
 
 ---
 
@@ -124,6 +130,22 @@ Manual acceptance check: say *"Yesterday I go to the store and I buy some milk."
 should contain **"went"** and **"bought"** as a silent recast, and the card should list
 `go → went` and `buy → bought` as `grammar` / `major`. Say something already correct and the
 card should be empty — Emma never invents an error to fill it.
+
+---
+
+## On a phone
+
+Below 720 px the app becomes a single screen with the mic pinned to the bottom: a compact Emma at
+the top, the conversation filling the space between, and the composer just above the mic. The page
+itself never scrolls — long conversations scroll inside the transcript panel. Tapping any of Emma's
+messages replays it, and the **Replay** pill is always visible on touch.
+
+The hamburger (top left) opens a drawer with **Settings**, **New session** and **End session**.
+Settings is its own full-screen page (learner, level, goals, scenario, start/end session) with a
+back arrow to Emma. Resizing back above 720 px restores the three-column desktop layout.
+
+The page shell is locked (`html/body/#root` `overflow: hidden`, `100dvh`, `min-height: 0` on flex
+children) and verified down to 320×568, where the transcript still gets ~156 px.
 
 ---
 
@@ -337,6 +359,6 @@ sentinel there is nothing to parse. That is handled, not an error.
 ## Deferred
 
 Pronunciation scoring, spaced-repetition review, vocabulary trainer, progress dashboard,
-barge-in and echo cancellation, mobile layout, multiple tutor characters, password auth,
+barge-in and echo cancellation, multiple tutor characters, password auth,
 hosted Postgres. Word-timestamp visemes are sketched but not wired up: the mouth is driven by
 audio amplitude, which is the safe v1.

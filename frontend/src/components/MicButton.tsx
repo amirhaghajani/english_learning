@@ -20,13 +20,16 @@ export function MicButton({ phase, disabled, onStart, onStop }: MicButtonProps) 
         aria-label={recording ? "Stop recording" : "Hold to talk"}
         onPointerDown={(event) => {
           event.preventDefault();
-          if (!disabled && !busy) onStart();
+          if (disabled || busy) return;
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            /* capture is a nicety; older browsers still get pointerup */
+          }
+          onStart();
         }}
         onPointerUp={(event) => {
           event.preventDefault();
-          if (recording) onStop();
-        }}
-        onPointerLeave={() => {
           if (recording) onStop();
         }}
         onPointerCancel={() => {

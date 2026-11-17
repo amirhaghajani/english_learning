@@ -254,6 +254,70 @@ def test_spelling_fix_is_kept():
     assert parsed[0].replacement == "I know"
 
 
+def test_apply_corrections_rebuilds_the_sentence():
+    from app.tutor.feedback import ParsedCorrection, apply_corrections
+
+    items = [
+        ParsedCorrection(said="i has", replacement="I have", category="grammar"),
+        ParsedCorrection(said="wht", replacement="what", category="word_choice"),
+    ]
+    assert apply_corrections("i has a question about wht to do", items) == (
+        "I have a question about what to do."
+    )
+
+
+def test_apply_corrections_is_case_insensitive():
+    from app.tutor.feedback import ParsedCorrection, apply_corrections
+
+    items = [ParsedCorrection(said="Yesterday I go", replacement="Yesterday I went")]
+    assert apply_corrections("yesterday i go to town", items) == "Yesterday I went to town."
+
+
+def test_apply_corrections_returns_empty_when_nothing_changes():
+    from app.tutor.feedback import ParsedCorrection, apply_corrections
+
+    items = [ParsedCorrection(said="I has", replacement="I has")]
+    assert apply_corrections("i has a question", items) == ""
+
+
+def test_apply_corrections_can_be_limited():
+    from app.tutor.feedback import ParsedCorrection, apply_corrections
+
+    items = [
+        ParsedCorrection(said="i has", replacement="I have"),
+        ParsedCorrection(said="wht", replacement="what"),
+        ParsedCorrection(said="yestday", replacement="yesterday"),
+    ]
+    transcript = "i has a question about wht and yestday it worked"
+    assert apply_corrections(transcript, items, limit=2) == (
+        "I have a question about what and yestday it worked."
+    )
+
+
+def test_has_recast_detects_a_corrected_word():
+    from app.tutor.feedback import ParsedCorrection, has_recast
+
+    items = [ParsedCorrection(said="i has", replacement="I have")]
+    assert has_recast("Oh, what's on your mind? I love questions!", items) is False
+    assert has_recast("So I have a question for you, right?", items) is True
+
+
+def test_has_recast_accepts_a_paraphrased_recast():
+    from app.tutor.feedback import ParsedCorrection, has_recast
+
+    items = [ParsedCorrection(said="I go to the store", replacement="I went to the store")]
+    assert has_recast("Oh nice, so you went to the store?", items) is True
+    assert has_recast("Oh nice, what did you buy?", items) is False
+
+
+def test_has_recast_ignores_tiny_replacements():
+    from app.tutor.feedback import ParsedCorrection, has_recast
+
+    items = [ParsedCorrection(said="a apple", replacement="an apple")]
+    assert has_recast("I ate an apple", items) is True
+    assert has_recast("I ate an apple", [ParsedCorrection(said="x", replacement="a")]) is False
+
+
 def test_case_insensitive_sentinel():
     text = "Fine.\n\n[[ corrections ]]\n[]"
     prose, _ = split_reply(text)

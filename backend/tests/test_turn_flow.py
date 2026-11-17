@@ -350,6 +350,81 @@ def test_repeated_opening_is_retried_once(client, scripted_llm, fake_stt):
     assert flaky.calls == 2
 
 
+def test_correction_is_spoken_when_prose_omits_the_recast(client, scripted_llm, fake_stt):
+    learner = client.post("/api/learners", json={"name": "Spoken"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    fake_stt.transcript = "i has a question about this"
+    scripted_llm.chunks = [
+        "Oh, what's on your mind?",
+        "\n\n[[CORRECTIONS]]\n",
+        '[{"said": "i has", "replacement": "I have", "category": "grammar", '
+        '"why": "third person", "severity": "major"}]',
+    ]
+
+    turn = client.post(
+        "/api/turns/text",
+        json={"session_id": session["id"], "text": "i has a question about this"},
+    ).json()
+
+    events = parse_sse(client.get(f"/api/turns/{turn['turn_id']}/reply").text)
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+
+    assert sentences[-1] == "It's better to say: I have a question about this."
+    assert sentences[0] == "Oh, what's on your mind?"
+
+
+def test_recast_is_not_repeated_when_prose_already_has_it(client, scripted_llm, fake_stt):
+    learner = client.post("/api/learners", json={"name": "Said"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    fake_stt.transcript = "i has a question"
+    scripted_llm.chunks = [
+        "Sure - I have a question too, so go ahead.",
+        "\n\n[[CORRECTIONS]]\n",
+        '[{"said": "i has", "replacement": "I have", "category": "grammar", '
+        '"why": "third person", "severity": "major"}]',
+    ]
+
+    turn = client.post(
+        "/api/turns/text",
+        json={"session_id": session["id"], "text": "i has a question"},
+    ).json()
+
+    events = parse_sse(client.get(f"/api/turns/{turn['turn_id']}/reply").text)
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+    assert sentences == ["Sure - I have a question too, so go ahead."]
+
+
+def test_open_quote_is_not_treated_as_a_sentence_end(client, scripted_llm, fake_stt):
+    learner = client.post("/api/learners", json={"name": "Quote"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    fake_stt.transcript = "i has a question"
+    scripted_llm.chunks = [
+        "It should be ",
+        '"I have a question."',
+        " That sounds right?",
+        "\n\n[[CORRECTIONS]]\n[]",
+    ]
+
+    turn = client.post(
+        "/api/turns/text",
+        json={"session_id": session["id"], "text": "i has a question"},
+    ).json()
+
+    events = parse_sse(client.get(f"/api/turns/{turn['turn_id']}/reply").text)
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+
+    assert sentences == ['It should be "I have a question."', "That sounds right?"]
+
+
 def test_text_turn_without_microphone(client, scripted_llm):
     learner = client.post("/api/learners", json={"name": "Typed"}).json()
     session = client.post(
