@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     piper_models_dir: str = "models"
     piper_speech_speed: float = 1.0
     piper_sample_rate: int = 22050
+    pronunciation_file: str = ""
 
     embedding_model: str = "bge-m3"
     rag_top_k: int = 3

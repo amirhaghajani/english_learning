@@ -11,6 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
+from app.audio.text import normalize_for_speech
 from app.audio.wav import silence
 from app.config import ROOT, settings
 
@@ -114,7 +115,7 @@ class PiperTTS:
         return frames, rate
 
     def synthesize(self, text: str) -> Iterator[bytes]:
-        cleaned = " ".join(text.split())
+        cleaned = normalize_for_speech(text)
         if not cleaned:
             return
         try:

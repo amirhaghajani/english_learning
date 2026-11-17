@@ -167,6 +167,8 @@ All settings live in `.env` (see `.env.example` for the full list).
 | `TTS_BACKEND` | `piper` | `piper` or `fake` |
 | `PIPER_MODEL` | `en_US-lessac-medium` | Any Piper voice you have downloaded |
 | `PIPER_MODELS_DIR` | `models` | Where `.onnx` voices live |
+| `PIPER_SPEECH_SPEED` | `1.0` | Piper `length_scale`; lower is slower |
+| `PRONUNCIATION_FILE` | — | JSON `{word: replacement}` merged into the built-in lexicon |
 | `EMBEDDING_MODEL` | `bge-m3` | 1024-dim, must match the `vector(1024)` column |
 | `RAG_ENABLED` | `true` | `false` forces keyword retrieval only |
 | `RAG_TOP_K` | `3` | Curriculum chunks per turn |
@@ -343,6 +345,18 @@ explicit "do not reuse that wording" instruction, plus a `repeat_penalty` on the
 That removes most repetition, but a small local model such as `qwen3:14b` can still land on the
 same phrasing after three attempts - switching `OLLAMA_MODEL` to a larger model (or
 `LLM_PROVIDER=openrouter`) is the effective fix.
+
+**Emma mispronounces a word.** Add it to `content/pronunciation.json` (or point
+`PRONUNCIATION_FILE` at your own file) and restart — the lexicon is loaded once:
+
+```json
+{ "quux": "kuh-ooks", "MVP": "M V P" }
+```
+
+Text is normalised before synthesis: markdown, emoji and anything after `[[CORRECTIONS]]` are
+stripped, and every dash form (`—`, `–`, `−`, or a spaced `-`) becomes a comma pause, because
+espeak otherwise reads the dash character aloud. Higher-quality voices are available too —
+`PIPER_MODEL=en_US-lessac-high` is noticeably cleaner than `medium`.
 
 **No sound at all.** Browsers start an `AudioContext` in `suspended` state until the page sees a
 user gesture. If the header shows **Enable sound**, click it once. The player also queues audio
