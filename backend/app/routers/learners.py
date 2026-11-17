@@ -41,7 +41,7 @@ async def create_learner(
         goals=payload.goals,
     )
     db.add(learner)
-    await db.flush()
+    await db.commit()
     return LearnerOut.model_validate(learner)
 
 
@@ -61,7 +61,7 @@ async def update_learner(
             raise HTTPException(status_code=409, detail=f"name '{data['name']}' is taken")
     for key, value in data.items():
         setattr(learner, key, value)
-    await db.flush()
+    await db.commit()
     return LearnerOut.model_validate(learner)
 
 

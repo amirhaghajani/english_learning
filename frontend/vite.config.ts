@@ -8,6 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: "127.0.0.1",          // Add this line
+    allowedHosts: [".ts.net"],   // Add this line
     proxy: {
       "/api": {
         target,

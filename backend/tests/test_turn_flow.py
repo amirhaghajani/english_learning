@@ -235,6 +235,121 @@ def test_audio_has_pause_after_each_sentence(client, scripted_llm, fake_stt):
         assert set(trailing) == {0}, f"sentence {index} does not end in silence"
 
 
+def test_echo_of_learner_message_is_not_spoken(client, scripted_llm, fake_stt):
+    learner = client.post("/api/learners", json={"name": "Echo"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    fake_stt.transcript = "yes here you are"
+    scripted_llm.chunks = [
+        "Yes, here you are.",
+        " Let me check your passport.",
+        " Do you have any luggage?",
+        "\n\n[[CORRECTIONS]]\n[]",
+    ]
+
+    turn = client.post(
+        "/api/turns",
+        data={"session_id": str(session["id"])},
+        files={"file": ("a.wav", make_wav(300), "audio/wav")},
+    ).json()
+
+    events = parse_sse(client.get(f"/api/turns/{turn['turn_id']}/reply").text)
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+
+    assert sentences == ["Let me check your passport.", "Do you have any luggage?"]
+
+    stored = client.get(f"/api/sessions/{session['id']}").json()["turns"][0]["reply_text"]
+    assert "Yes, here you are." not in stored
+
+
+def test_genuine_recast_is_still_spoken(client, scripted_llm, fake_stt):
+    learner = client.post("/api/learners", json={"name": "Recast"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    fake_stt.transcript = "Yesterday I go to the store"
+    scripted_llm.chunks = [
+        "Yesterday I went to the store.",
+        " What did you buy?",
+        "\n\n[[CORRECTIONS]]\n[]",
+    ]
+
+    turn = client.post(
+        "/api/turns",
+        data={"session_id": str(session["id"])},
+        files={"file": ("a.wav", make_wav(300), "audio/wav")},
+    ).json()
+
+    events = parse_sse(client.get(f"/api/turns/{turn['turn_id']}/reply").text)
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+
+    assert sentences == ["Yesterday I went to the store.", "What did you buy?"]
+
+
+class FlakyLLM:
+    """Repeats a recent reply on the first attempt, then produces something new."""
+
+    name = "flaky"
+    model = "flaky-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_system: list[str] = []
+
+    def stream(self, req):  # noqa: ANN201
+        self.calls += 1
+        self.seen_system.append(req.system)
+        if self.calls == 1:
+            yield from [
+                "Here you go.",
+                " Do you have any luggage?",
+                "\n\n[[CORRECTIONS]]\n[]",
+            ]
+        else:
+            yield from [
+                "Thanks for confirming.",
+                " Anything else I should check?",
+                "\n\n[[CORRECTIONS]]\n[]",
+            ]
+
+    def probe(self) -> tuple[bool, str]:
+        return True, "flaky"
+
+
+def test_repeated_opening_is_retried_once(client, scripted_llm, fake_stt):
+    from app import deps
+    from app.main import app
+
+    learner = client.post("/api/learners", json={"name": "Retry"}).json()
+    session = client.post(
+        "/api/sessions", json={"learner_id": learner["id"], "mode": "free"}
+    ).json()
+
+    flaky = FlakyLLM()
+    app.dependency_overrides[deps.get_llm_dep] = lambda: flaky
+
+    fake_stt.transcript = "yes here"
+    first = client.post(
+        "/api/turns/text",
+        json={"session_id": session["id"], "text": "yes here"},
+    ).json()
+    client.get(f"/api/turns/{first['turn_id']}/reply")
+
+    fake_stt.transcript = "no"
+    second = client.post(
+        "/api/turns/text",
+        json={"session_id": session["id"], "text": "no"},
+    ).json()
+    events = parse_sse(client.get(f"/api/turns/{second['turn_id']}/reply").text)
+
+    sentences = [data["text"] for name, data in events if name == "sentence"]
+    assert sentences == ["Thanks for confirming.", "Anything else I should check?"]
+    assert flaky.calls == 2
+
+
 def test_text_turn_without_microphone(client, scripted_llm):
     learner = client.post("/api/learners", json={"name": "Typed"}).json()
     session = client.post(

@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.models import CorrectionCategory, CorrectionSeverity
-from app.tutor.sentences import strip_markdown_fences
+from app.tutor.sentences import split_sentences, strip_markdown_fences
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +190,30 @@ def split_reply(
         text[match.start() :], limit=limit, ground_against=ground_against
     )
     return prose, corrections
+
+
+def is_repeat_of_any(sentence: str, replies: list[str]) -> bool:
+    """True when the sentence opens with the same words as a recent reply of ours."""
+    target = _skeleton(sentence)
+    if len(target) < 4:
+        return False
+    for reply in replies:
+        parts = split_sentences(reply)
+        if parts and _skeleton(parts[0]) == target:
+            return True
+    return False
+
+
+def drop_echoes(prose: str, transcript: str) -> str:
+    """Remove sentences that only parrot the learner, keeping the reply non-empty."""
+    sentences = split_sentences(prose)
+    if not sentences:
+        return prose
+
+    kept = [sentence for sentence in sentences if not is_echo(sentence, transcript)]
+    if not kept:
+        return prose
+    return " ".join(kept)
 
 
 def to_dict(item: ParsedCorrection) -> dict:

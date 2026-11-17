@@ -76,7 +76,7 @@ async def create_session(
         llm_model=model,
     )
     db.add(session)
-    await db.flush()
+    await db.commit()
     return SessionOut.from_model(session, turns=[])
 
 

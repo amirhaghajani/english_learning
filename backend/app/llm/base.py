@@ -23,6 +23,7 @@ class ReplyRequest:
     messages: list[ChatMessage] = field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int | None = None
+    repetition_penalty: float | None = None
 
 
 @runtime_checkable

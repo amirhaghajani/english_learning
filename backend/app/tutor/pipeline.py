@@ -16,7 +16,14 @@ from app.llm.base import LLMError, ReplyRequest, TutorLLM
 from app.llm.prompt import PromptContext, RecurringError, build_messages, build_system_prompt
 from app.models import Correction, Learner, Scenario, Session, Turn
 from app.rag.index import CurriculumRetriever
-from app.tutor.feedback import SENTINEL_RE, ParsedCorrection, split_reply
+from app.tutor.feedback import (
+    SENTINEL_RE,
+    ParsedCorrection,
+    drop_echoes,
+    is_echo,
+    is_repeat_of_any,
+    split_reply,
+)
 from app.tutor.sentences import split_sentences
 
 logger = logging.getLogger(__name__)
@@ -24,6 +31,7 @@ logger = logging.getLogger(__name__)
 _SENTINEL = object()
 
 SENTENCE_GAP_MS = 220
+MAX_REPLY_ATTEMPTS = 2
 
 
 @dataclass
@@ -227,45 +235,89 @@ async def stream_reply(
     request = ReplyRequest(
         system=build_system_prompt(ctx),
         messages=build_messages(ctx, turn.transcript),
-        temperature=0.7,
+        temperature=0.85,
+        repetition_penalty=1.15,
     )
-
-    buffer = ""
-    emitted = 0
 
     def speakable(text: str) -> str:
         match = SENTINEL_RE.search(text)
         return text[: match.start()] if match else text
 
-    try:
-        async for delta in _aiter_sync(llm.stream(request)):
-            buffer += delta
-            visible = speakable(buffer)
-            parts = split_sentences(visible)
-            emittable = parts if _is_closed(visible) else parts[:-1]
-            while emitted < len(emittable):
-                sentence = emittable[emitted]
-                emitted += 1
-                for event in speaker.say(sentence):
-                    yield event
-    except LLMError as exc:
-        logger.warning("LLM error on turn %s: %s", turn.id, exc.message)
-        await _persist(db, turn, buffer.strip(), [], speaker.audio_ms)
-        yield SseEvent("error", {"code": exc.code, "message": exc.message})
-        return
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("unexpected failure streaming turn %s", turn.id)
-        await _persist(db, turn, buffer.strip(), [], speaker.audio_ms)
-        yield SseEvent("error", {"code": "reply_failed", "message": str(exc)})
-        return
+    recent_replies = [
+        turn.reply_text.strip()
+        for turn in history
+        if turn.reply_text and turn.reply_text.strip()
+    ][-3:]
+
+    buffer = ""
+    emitted = 0
+    attempt = 0
+
+    while True:
+        buffer = ""
+        emitted = 0
+        repeated = ""
+        can_retry = attempt < MAX_REPLY_ATTEMPTS
+
+        try:
+            async for delta in _aiter_sync(llm.stream(request)):
+                buffer += delta
+                visible = speakable(buffer)
+                parts = split_sentences(visible)
+                emittable = parts if _is_closed(visible) else parts[:-1]
+                while emitted < len(emittable):
+                    sentence = emittable[emitted]
+                    emitted += 1
+                    if can_retry and emitted == 1 and is_repeat_of_any(sentence, recent_replies):
+                        repeated = sentence
+                        break
+                    if is_echo(sentence, turn.transcript):
+                        continue
+                    for event in speaker.say(sentence):
+                        yield event
+                if repeated:
+                    break
+        except LLMError as exc:
+            logger.warning("LLM error on turn %s: %s", turn.id, exc.message)
+            await _persist(db, turn, buffer.strip(), [], speaker.audio_ms)
+            yield SseEvent("error", {"code": exc.code, "message": exc.message})
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("unexpected failure streaming turn %s", turn.id)
+            await _persist(db, turn, buffer.strip(), [], speaker.audio_ms)
+            yield SseEvent("error", {"code": "reply_failed", "message": str(exc)})
+            return
+
+        if not repeated or not can_retry:
+            break
+
+        attempt += 1
+        logger.info("turn %s repeated a recent reply, retrying once", turn.id)
+        request = ReplyRequest(
+            system=build_system_prompt(ctx)
+            + f'\n\nYour last attempt began with "{repeated}". Do not open with that and '
+            "do not reuse that wording. Answer the learner's newest message directly in "
+            "your own words.",
+            messages=build_messages(ctx, turn.transcript),
+            temperature=1.0,
+            repetition_penalty=1.2,
+        )
 
     for sentence in split_sentences(speakable(buffer))[emitted:]:
+        if is_echo(sentence, turn.transcript):
+            continue
         for event in speaker.say(sentence):
+            yield event
+
+    if speaker.index == 0:
+        fallback = "Sorry, I didn't catch that. Could you say it again?"
+        for event in speaker.say(fallback):
             yield event
 
     prose, corrections = split_reply(
         buffer, limit=settings.max_corrections, ground_against=turn.transcript
     )
+    prose = drop_echoes(prose, turn.transcript)
     await _persist(db, turn, prose, corrections, speaker.audio_ms)
 
     yield SseEvent(

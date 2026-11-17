@@ -82,6 +82,7 @@ async def create_text_turn(
         raise HTTPException(status_code=400, detail="empty message")
 
     turn = await _store_turn(db, session, text, no_speech=False, audio_ms=0)
+    await db.commit()
     return TurnAccepted(
         turn_id=turn.id,
         transcript=turn.transcript,
@@ -122,6 +123,7 @@ async def create_turn(
     turn = await _store_turn(
         db, session, result.text, no_speech=result.no_speech, audio_ms=wav.duration_ms
     )
+    await db.commit()
     return TurnAccepted(
         turn_id=turn.id,
         transcript=turn.transcript,

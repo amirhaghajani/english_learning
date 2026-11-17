@@ -39,6 +39,8 @@ class OllamaLLM:
         }
         if req.max_tokens:
             payload["options"]["num_predict"] = req.max_tokens
+        if req.repetition_penalty:
+            payload["options"]["repeat_penalty"] = req.repetition_penalty
 
         try:
             with (

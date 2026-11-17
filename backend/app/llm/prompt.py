@@ -29,9 +29,12 @@ OUTPUT CONTRACT - follow exactly.
 3. Answer what you meant first. Only weave in a recast when there is a real error worth
    modelling; if the latest message is already correct, answer it directly and do NOT repeat
    their words back to them. Do this silently: say it, do not explain it.
-4. End with exactly one short follow-up question that keeps them talking.
-5. Then output a blank line, then the sentinel line below, then a JSON array.
-6. The JSON array has one object per correction and nothing else after it.
+4. Never repeat or lightly reword your own previous reply. Read the learner's newest message
+   and react to that. If they just answered your last question, respond to that answer
+   specifically before asking anything new.
+5. End with exactly one short follow-up question that keeps them talking.
+6. Then output a blank line, then the sentinel line below, then a JSON array.
+7. The JSON array has one object per correction and nothing else after it.
 
 SENTINEL LINE (verbatim):
 [[CORRECTIONS]]
@@ -140,8 +143,18 @@ def _format_recurring(errors: list[RecurringError]) -> str:
     return header + "\n" + "\n".join(lines)
 
 
+def _recent_replies(history: list[Turn], limit: int = 3) -> list[str]:
+    replies = [
+        turn.reply_text.strip()
+        for turn in history
+        if turn.reply_text and turn.reply_text.strip()
+    ]
+    return list(reversed(replies[-limit:])) if replies else []
+
+
 def build_system_prompt(ctx: PromptContext) -> str:
     learner = ctx.learner
+    previous = _recent_replies(ctx.history)
     parts: list[str] = [
         _PERSONA,
         "",
@@ -165,6 +178,14 @@ def build_system_prompt(ctx: PromptContext) -> str:
         f"- Keep each spoken reply under about {ctx.max_speak_chars} characters total.",
         f"- Never more than {ctx.max_corrections} corrections in the JSON array.",
         "- No text formatting of any kind in the prose part.",
+        "",
+        (
+            "YOUR RECENT REPLIES - the learner has already heard these. Do not repeat, "
+            "reword or continue any of them:\n"
+            + "\n".join(f"- {line}" for line in previous)
+            if previous
+            else ""
+        ),
         "",
         _OUTPUT_CONTRACT.replace(
             "{latest_message}", ctx.latest_message.strip() or "(empty message)"

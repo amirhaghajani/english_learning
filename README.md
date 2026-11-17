@@ -315,6 +315,13 @@ buffer and plays them strictly one at a time with a further 120 ms gap. If it st
 glued together, the backend process is probably stale — restart `uvicorn` (it is not started
 with `--reload` in the quick start).
 
+**Emma keeps repeating herself.** She never repeats her own opening sentence within a turn:
+the pipeline compares it against the last three replies and regenerates up to twice with an
+explicit "do not reuse that wording" instruction, plus a `repeat_penalty` on the model call.
+That removes most repetition, but a small local model such as `qwen3:14b` can still land on the
+same phrasing after three attempts - switching `OLLAMA_MODEL` to a larger model (or
+`LLM_PROVIDER=openrouter`) is the effective fix.
+
 **No sound at all.** Browsers start an `AudioContext` in `suspended` state until the page sees a
 user gesture. If the header shows **Enable sound**, click it once. The player also queues audio
 while suspended and flushes it on resume, so a blocked context delays speech instead of dropping

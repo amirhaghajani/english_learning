@@ -50,6 +50,8 @@ class OpenRouterLLM:
         }
         if req.max_tokens:
             payload["max_tokens"] = req.max_tokens
+        if req.repetition_penalty:
+            payload["presence_penalty"] = round(max(0.0, req.repetition_penalty - 1.0), 3)
 
         headers = self._headers()
         try:
